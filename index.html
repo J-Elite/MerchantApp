@@ -160,7 +160,7 @@
         <pre id="login-response" style="font-size:12px;color:#888;"></pre>
       </div>
 
-      <!-- Step 1: Check Member -->
+      <!-- Check Member -->
       <div id="screen-check" class="hidden">
         <h2>เบอร์โทรศัพท์ลูกค้า</h2>
         <input type="text" id="phone" placeholder="กรอกเบอร์โทรศัพท์" />
@@ -168,7 +168,7 @@
         <pre id="check-response" style="font-size:12px;color:#888;"></pre>
       </div>
 
-      <!-- Step 2: Transaction -->
+      <!-- Transaction -->
       <div id="screen-transaction" class="hidden">
         <h2>ข้อมูลลูกค้า</h2>
         <div class="customer-info" id="customer-info"></div>
@@ -180,7 +180,7 @@
         <button onclick="showConfirmPopup()">ส่งข้อมูล</button>
       </div>
 
-      <!-- Step 3: Success -->
+      <!-- Success -->
       <div id="screen-success" class="hidden">
         <div class="success-message">
           <h2>ให้คะแนนสำเร็จ</h2>
@@ -330,27 +330,25 @@
     }
 
     async function checkMember() {
-      await refreshTokenIfNeeded();
-
       const phone = document.getElementById("phone").value.trim();
       const checkResponse = document.getElementById("check-response");
       checkResponse.textContent = "";
 
       if (!phone) {
-        alert("กรุณากรอกเบอร์โทรศัพท์");
+        checkResponse.textContent = "กรุณากรอกเบอร์โทรศัพท์";
         return;
       }
 
-      showSpinner(true);
+      await refreshTokenIfNeeded();
 
+      showSpinner(true);
       try {
-        const res = await fetch(`${API_BASE}/member?identity=${encodeURIComponent(phone)}`, {
+        const res = await fetch(`${API_BASE}/member/check?phoneNumber=${encodeURIComponent(phone)}`, {
+          method: "GET",
           headers: {
-            Authorization: AUTH_TOKEN,
-            "x-partner-code": PARTNER_CREDENTIALS[currentPartner].partnerCode
+            Authorization: AUTH_TOKEN
           }
         });
-
         const data = await res.json();
 
         if (!res.ok) {
@@ -358,26 +356,9 @@
           return;
         }
 
-        customerData = data.data || data;
-
-        if (customerData.accountNumber) {
-          customerData.memberCode = customerData.accountNumber;
-        }
-
-        let memberTier = customerData.tierName || customerData.membershipTier || "ทั่วไป";
-
-        let infoHtml = `
-          ชื่อ: ${customerData.fullName || customerData.firstName || "-"}<br/>
-          เบอร์โทรศัพท์: ${customerData.identity || phone}<br/>
-          Member Code: ${customerData.memberCode || "-"}<br/>
-          Tier: ${memberTier}
-        `;
-
-        document.getElementById("customer-info").innerHTML = infoHtml;
-        document.getElementById("amountPaid").value = "";
-        document.getElementById("billNo").value = "";
+        customerData = data.data;
+        document.getElementById("customer-info").textContent = `ชื่อ: ${customerData.firstName || "-"} ${customerData.lastName || "-"}\nเบอร์: ${customerData.phoneNumber}\nสมาชิก: ${customerData.memberCode || "-"}`;
         goToScreen("transaction");
-
       } catch (err) {
         checkResponse.textContent = "❌ Error: " + err.message;
       } finally {
@@ -386,26 +367,25 @@
     }
 
     function showConfirmPopup() {
-      const amount = document.getElementById("amountPaid").value.trim();
+      const amountPaid = document.getElementById("amountPaid").value.trim();
       const billNo = document.getElementById("billNo").value.trim();
 
-      if (!amount || isNaN(amount) || Number(amount) <= 0) {
-        alert("กรุณากรอกยอดชำระให้ถูกต้อง");
+      if (!amountPaid || isNaN(amountPaid) || Number(amountPaid) <= 0) {
+        alert("กรุณากรอกยอดชำระที่ถูกต้อง");
         return;
       }
+
       if (!billNo) {
         alert("กรุณากรอกเลขที่บิล / ใบเสร็จ");
         return;
       }
 
       transactionInfo = {
-        amountPaid: amount,
+        amountPaid: amountPaid,
         billNo: billNo
       };
 
-      document.getElementById("confirm-message").textContent = 
-        `ยอดชำระ: ${amount} บาท\nเลขที่บิล: ${billNo}\n\nกรุณายืนยันการทำรายการ`;
-
+      // แสดง popup ยืนยัน
       document.getElementById("confirm-popup").style.display = "flex";
     }
 
@@ -415,25 +395,27 @@
 
     async function confirmSubmit() {
       closePopup();
+      await submitTransaction();
+    }
+
+    async function submitTransaction() {
+      await refreshTokenIfNeeded();
+
       showSpinner(true);
 
       try {
-        await refreshTokenIfNeeded();
-
-        // เตรียม payload สำหรับ Submit (ยิง API ตั้งแต่แรกเลย ไม่มีการคำนวณคะแนนในนี้)
         const payload = {
+          amount: Number(transactionInfo.amountPaid),
+          billNo: transactionInfo.billNo,
           memberCode: customerData.memberCode,
-          amountPaid: Number(transactionInfo.amountPaid),
-          orderNumber: transactionInfo.billNo,
-          partnerCode: PARTNER_CREDENTIALS[currentPartner].partnerCode
+          phoneNumber: customerData.phoneNumber
         };
 
         const res = await fetch(`${API_BASE}/transaction/submit`, {
           method: "POST",
           headers: {
-            Authorization: AUTH_TOKEN,
             "Content-Type": "application/json",
-            "x-partner-code": PARTNER_CREDENTIALS[currentPartner].partnerCode
+            Authorization: AUTH_TOKEN
           },
           body: JSON.stringify(payload)
         });
@@ -441,17 +423,14 @@
         const data = await res.json();
 
         if (!res.ok) {
-          alert("❌ ไม่สามารถทำรายการได้: " + (data.message || "Unknown error"));
+          alert("❌ ส่งข้อมูลไม่สำเร็จ: " + (data.message || "Unknown error"));
+          showSpinner(false);
           return;
         }
 
-        // แสดงผลสำเร็จอย่างง่าย
-        document.getElementById("success-info").innerHTML = `
-          ยอดชำระ: ${payload.amountPaid} บาท<br/>
-          เลขที่บิล: ${payload.orderNumber}
-        `;
+        // แสดงหน้าสำเร็จ
+        document.getElementById("success-info").textContent = `บิล: ${transactionInfo.billNo}\nยอดชำระ: ${transactionInfo.amountPaid} บาท`;
         goToScreen("success");
-
       } catch (err) {
         alert("❌ Error: " + err.message);
       } finally {
@@ -459,12 +438,19 @@
       }
     }
 
-    function showSpinner(show) {
-      document.getElementById("spinner").style.display = show ? "flex" : "none";
+    function showSpinner(show = true) {
+      const spinner = document.getElementById("spinner");
+      spinner.style.display = show ? "flex" : "none";
     }
 
-    // เริ่มต้นแสดงหน้าล็อกอิน
-    goToScreen("login");
+    // ถ้า token หมดอายุให้ลบและกลับไป login ใหม่
+    window.onload = () => {
+      if (!AUTH_TOKEN) {
+        goToScreen("login");
+      } else {
+        goToScreen("check");
+      }
+    };
   </script>
 </body>
 </html>
