@@ -116,11 +116,6 @@
     .success-message h2 {
       color: green;
     }
-    .points-earned {
-      font-size: 24px;
-      color: #0a2f7d;
-      margin: 20px 0;
-    }
     .spinner-overlay {
       display: none;
       position: fixed;
@@ -182,14 +177,13 @@
         <input type="text" id="amountPaid" placeholder="กรอกยอดชำระ" />
         <label>เลขที่บิล / ใบเสร็จ</label>
         <input type="text" id="billNo" placeholder="เช่น 311299240900152" />
-        <button onclick="previewPoints()">ส่งข้อมูล</button>
+        <button onclick="showConfirmPopup()">ส่งข้อมูล</button>
       </div>
 
       <!-- Step 3: Success -->
       <div id="screen-success" class="hidden">
         <div class="success-message">
           <h2>ให้คะแนนสำเร็จ</h2>
-          <div class="points-earned" id="points-earned">+0 คะแนน</div>
           <div id="success-info"></div>
           <button onclick="goToScreen('check')">เสร็จสิ้น</button>
         </div>
@@ -230,7 +224,6 @@
     let TOKEN_TIMESTAMP = parseInt(sessionStorage.getItem("tokenTimestamp") || "0");
     let currentPartner = sessionStorage.getItem("currentPartner") || null;
     let customerData = null;
-    let pendingPoints = 0;
     let transactionInfo = {};
 
     function goToScreen(screen) {
@@ -371,15 +364,20 @@
           customerData.memberCode = customerData.accountNumber;
         }
 
-        let memberTier = customerData.tier?.name || "";
+        let memberTier = customerData.tierName || customerData.membershipTier || "ทั่วไป";
 
-        document.getElementById("customer-info").innerHTML = `
-          <strong>ชื่อ:</strong> ${customerData.firstName || ""} ${customerData.lastName || ""}<br>
-          <strong>เบอร์:</strong> ${customerData.telephone || phone}<br>
-          <strong>Member Tier:</strong> ${memberTier}
+        let infoHtml = `
+          ชื่อ: ${customerData.fullName || customerData.firstName || "-"}<br/>
+          เบอร์โทรศัพท์: ${customerData.identity || phone}<br/>
+          Member Code: ${customerData.memberCode || "-"}<br/>
+          Tier: ${memberTier}
         `;
 
+        document.getElementById("customer-info").innerHTML = infoHtml;
+        document.getElementById("amountPaid").value = "";
+        document.getElementById("billNo").value = "";
         goToScreen("transaction");
+
       } catch (err) {
         checkResponse.textContent = "❌ Error: " + err.message;
       } finally {
@@ -387,113 +385,27 @@
       }
     }
 
-    function generateRequestNumber() {
-      const prefix = "JP";
-      const timestamp = Date.now().toString();
-      const randomNum = Math.floor(Math.random() * 10000).toString();
-      let reqNum = prefix + timestamp + randomNum;
-      if (reqNum.length > 25) reqNum = reqNum.slice(0, 25);
-      return reqNum;
-    }
+    function showConfirmPopup() {
+      const amount = document.getElementById("amountPaid").value.trim();
+      const billNo = document.getElementById("billNo").value.trim();
 
-    function getToday() {
-      const d = new Date();
-      return d.toISOString().slice(0, 10);
-    }
-
-    function getCurrentDateTimeISO() {
-      const d = new Date();
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, "0");
-      const dd = String(d.getDate()).padStart(2, "0");
-      const hh = String(d.getHours()).padStart(2, "0");
-      const min = String(d.getMinutes()).padStart(2, "0");
-      const ss = String(d.getSeconds()).padStart(2, "0");
-      return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
-    }
-
-    async function previewPoints() {
-      await refreshTokenIfNeeded();
-
-      const amountStr = document.getElementById("amountPaid").value.trim();
-      const bill = document.getElementById("billNo").value.trim();
-
-      if (!amountStr || !bill) {
-        alert("กรุณากรอกข้อมูลให้ครบ");
+      if (!amount || isNaN(amount) || Number(amount) <= 0) {
+        alert("กรุณากรอกยอดชำระให้ถูกต้อง");
+        return;
+      }
+      if (!billNo) {
+        alert("กรุณากรอกเลขที่บิล / ใบเสร็จ");
         return;
       }
 
-      const amount = parseFloat(amountStr);
-      if (isNaN(amount) || amount <= 0) {
-        alert("กรุณากรอกยอดชำระที่ถูกต้อง");
-        return;
-      }
+      transactionInfo = {
+        amountPaid: amount,
+        billNo: billNo
+      };
 
-      showSpinner(true);
+      document.getElementById("confirm-message").textContent = 
+        `ยอดชำระ: ${amount} บาท\nเลขที่บิล: ${billNo}\n\nกรุณายืนยันการทำรายการ`;
 
-      try {
-        const payload = {
-          channel: "Store",
-          branchID: "001",
-          brandName: "WELLOGY CLINIC",
-          memberCode: customerData.memberCode,
-          orderNumber: generateRequestNumber(), // mock order number for Precal
-          requestType: "Precal",
-          businessDate: getToday(),
-          totalAmountAfterDiscount: amount,
-          totalAmountBeforeDiscount: amount,
-          requestNumber: generateRequestNumber(),
-          purchaseDate: getCurrentDateTimeISO(),
-          promotions: [{ promotionCode: "BASICPOINT" }]
-        };
-
-        const res = await fetch(`${API_BASE}/promotions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: AUTH_TOKEN,
-            "x-partner-code": PARTNER_CREDENTIALS[currentPartner].partnerCode
-          },
-          body: JSON.stringify(payload)
-        });
-
-        const data = await res.json();
-
-        if (!res.ok) {
-          alert("API Error: " + (data.message || "Unknown error"));
-          return;
-        }
-
-        // ดึงคะแนนจาก data.card.credits
-        let points = 0;
-        if (data.data && data.data.card && Array.isArray(data.data.card.credits)) {
-          const pointCredit = data.data.card.credits.find(c => c.creditCode === "POINT");
-          if (pointCredit && typeof pointCredit.creditNew === "number") {
-            points = pointCredit.creditNew;
-          }
-        }
-
-        pendingPoints = points;
-        transactionInfo = {
-          amount: amount,
-          billNo: bill,
-          earnPoints: pendingPoints
-        };
-
-        document.getElementById("confirm-message").innerHTML = `
-          ยอดชำระ: ${amount} บาท<br>
-          คะแนนที่จะได้รับ: <strong>${pendingPoints}</strong> คะแนน<br><br>
-          ยืนยันการทำรายการ?
-        `;
-        showPopup();
-      } catch (err) {
-        alert("Error: " + err.message);
-      } finally {
-        showSpinner(false);
-      }
-    }
-
-    function showPopup() {
       document.getElementById("confirm-popup").style.display = "flex";
     }
 
@@ -502,31 +414,25 @@
     }
 
     async function confirmSubmit() {
-      await refreshTokenIfNeeded();
       closePopup();
       showSpinner(true);
 
       try {
+        await refreshTokenIfNeeded();
+
+        // เตรียม payload สำหรับ Submit (ยิง API ตั้งแต่แรกเลย ไม่มีการคำนวณคะแนนในนี้)
         const payload = {
-          channel: "Store",
-          branchID: "001",
-          brandName: "WELLOGY CLINIC",
           memberCode: customerData.memberCode,
-          orderNumber: transactionInfo.billNo, // ใช้เลขที่บิลที่ user กรอกจริงตอน submit
-          requestType: "Submit",
-          businessDate: getToday(),
-          totalAmountAfterDiscount: transactionInfo.amount,
-          totalAmountBeforeDiscount: transactionInfo.amount,
-          requestNumber: generateRequestNumber(),
-          purchaseDate: getCurrentDateTimeISO(),
-          promotions: [{ promotionCode: "BASICPOINT" }]
+          amountPaid: Number(transactionInfo.amountPaid),
+          orderNumber: transactionInfo.billNo,
+          partnerCode: PARTNER_CREDENTIALS[currentPartner].partnerCode
         };
 
-        const res = await fetch(`${API_BASE}/promotions`, {
+        const res = await fetch(`${API_BASE}/transaction/submit`, {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
             Authorization: AUTH_TOKEN,
+            "Content-Type": "application/json",
             "x-partner-code": PARTNER_CREDENTIALS[currentPartner].partnerCode
           },
           body: JSON.stringify(payload)
@@ -535,41 +441,29 @@
         const data = await res.json();
 
         if (!res.ok) {
-          alert("API Error: " + (data.message || "Unknown error"));
+          alert("❌ ไม่สามารถทำรายการได้: " + (data.message || "Unknown error"));
           return;
         }
 
-        // ดึงคะแนนจาก data.card.credits
-        let points = 0;
-        if (data.data && data.data.card && Array.isArray(data.data.card.credits)) {
-          const pointCredit = data.data.card.credits.find(c => c.creditCode === "POINT");
-          if (pointCredit && typeof pointCredit.creditNew === "number") {
-            points = pointCredit.creditNew;
-          }
-        }
-
-        pendingPoints = points;
-
-        document.getElementById("points-earned").textContent = `+${pendingPoints} คะแนน`;
+        // แสดงผลสำเร็จอย่างง่าย
         document.getElementById("success-info").innerHTML = `
-          <strong>ยอดชำระ:</strong> ${transactionInfo.amount} บาท<br>
-          <strong>เลขที่บิล:</strong> ${transactionInfo.billNo}<br>
-          <strong>วันที่:</strong> ${new Date().toLocaleString()}
+          ยอดชำระ: ${payload.amountPaid} บาท<br/>
+          เลขที่บิล: ${payload.orderNumber}
         `;
-
         goToScreen("success");
+
       } catch (err) {
-        alert("Error: " + err.message);
+        alert("❌ Error: " + err.message);
       } finally {
         showSpinner(false);
       }
     }
 
-    function showSpinner(show = true) {
+    function showSpinner(show) {
       document.getElementById("spinner").style.display = show ? "flex" : "none";
     }
 
-    // เริ่มต้นที่หน้า login
+    // เริ่มต้นแสดงหน้าล็อกอิน
     goToScreen("login");
   </script>
 </body>
