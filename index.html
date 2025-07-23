@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>J POINT Merchant App</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    .iphone-frame {
+      background: #fff;
+      width: 375px;
+      height: 700px;
+      border-radius: 40px;
+      box-shadow: 0 0 0 8px #000, 0 0 20px rgba(0,0,0,0.5);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .app-header {
+      background: #0a2f7d;
+      color: #fff;
+      padding: 15px 20px;
+      font-size: 18px;
+      font-weight: bold;
+      text-align: center;
+    }
+    .app-content {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+    }
+    h2, h3 {
+      margin: 10px 0;
+      color: #0a2f7d;
+    }
+    label {
+      display: block;
+      margin: 15px 0 5px;
+      font-weight: bold;
+      color: #333;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #0a2f7d;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 20px;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background: #08306b;
+    }
+    .customer-info {
+      background: #f6f6f6;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      color: #333;
+      font-size: 14px;
+    }
+    .popup-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    .popup {
+      background: #fff;
+      padding: 20px;
+      border-radius: 12px;
+      width: 300px;
+      text-align: center;
+    }
+    .popup h3 {
+      margin-bottom: 10px;
+      color: #0a2f7d;
+    }
+    .popup-buttons {
+      display: flex;
+      gap: 10px;
+    }
+    .popup-buttons button {
+      flex: 1;
+    }
+    .success-message {
+      text-align: center;
+      padding-top: 30px;
+    }
+    .success-message h2 {
+      color: green;
+    }
+    .points-earned {
+      font-size: 24px;
+      color: #0a2f7d;
+      margin: 20px 0;
+    }
+    .spinner-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(255,255,255,0.8);
+      justify-content: center;
+      align-items: center;
+      z-index: 2000;
+      flex-direction: column;
+    }
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #0a2f7d;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin-bottom: 10px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="iphone-frame">
+    <div class="app-header">J POINT Merchant</div>
+    <div class="app-content">
+      <!-- Login Screen -->
+      <div id="screen-login">
+        <h2>เข้าสู่ระบบ</h2>
+        <label>Username</label>
+        <input type="text" id="username" placeholder="กรอก Username" />
+        <label>Password</label>
+        <input type="password" id="password" placeholder="กรอก Password" />
+        <button onclick="login()">เข้าสู่ระบบ</button>
+        <pre id="login-response" style="font-size:12px;color:#888;"></pre>
+      </div>
+
+      <!-- Step 1: Check Member -->
+      <div id="screen-check" class="hidden">
+        <h2>เบอร์โทรศัพท์ลูกค้า</h2>
+        <input type="text" id="phone" placeholder="กรอกเบอร์โทรศัพท์" />
+        <button onclick="checkMember()">ยืนยัน</button>
+        <pre id="check-response" style="font-size:12px;color:#888;"></pre>
+      </div>
+
+      <!-- Step 2: Transaction -->
+      <div id="screen-transaction" class="hidden">
+        <h2>ข้อมูลลูกค้า</h2>
+        <div class="customer-info" id="customer-info"></div>
+        <h3>กรอกข้อมูลเพื่อให้คะแนน</h3>
+        <label>ยอดชำระ (บาท)</label>
+        <input type="text" id="amountPaid" placeholder="กรอกยอดชำระ" />
+        <label>เลขที่บิล / ใบเสร็จ</label>
+        <input type="text" id="billNo" placeholder="เช่น 311299240900152" />
+        <button onclick="previewPoints()">ส่งข้อมูล</button>
+      </div>
+
+      <!-- Step 3: Success -->
+      <div id="screen-success" class="hidden">
+        <div class="success-message">
+          <h2>ให้คะแนนสำเร็จ</h2>
+          <div class="points-earned" id="points-earned">+0 คะแนน</div>
+          <div id="success-info"></div>
+          <button onclick="goToScreen('check')">เสร็จสิ้น</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Popup Confirm -->
+  <div class="popup-overlay" id="confirm-popup">
+    <div class="popup">
+      <h3>ยืนยันการให้คะแนน</h3>
+      <p id="confirm-message">กรุณายืนยันการทำรายการ</p>
+      <div class="popup-buttons">
+        <button onclick="closePopup()">ยกเลิก</button>
+        <button onclick="confirmSubmit()">ยืนยัน</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Spinner -->
+  <div class="spinner-overlay" id="spinner">
+    <div class="spinner"></div>
+    <div>ระบบกำลังทำรายการ...</div>
+  </div>
+
+  <script>
+    const API_BASE = "https://sit-api.jpointcrm.com/api/v1/partner";
+
+    const PARTNER_CREDENTIALS = {
+      "partner1": {
+        partnerCode: "JP_DEV",
+        clientId: "JP_DEV",
+        clientSecret: "423e410c51e0a02c84d1c6046f97c9df1debde99a1aa1c216a39aa3e3756bd02a00401d99eaa264db266fad39f84680f1389af8f2803569ef788a031a2d82f05"
+      }
+    };
+
+    let AUTH_TOKEN = sessionStorage.getItem("authToken") || null;
+    let TOKEN_TIMESTAMP = parseInt(sessionStorage.getItem("tokenTimestamp") || "0");
+    let currentPartner = sessionStorage.getItem("currentPartner") || null;
+    let customerData = null;
+    let pendingPoints = 0;
+    let transactionInfo = {};
+
+    function goToScreen(screen) {
+      document.querySelectorAll(".app-content > div").forEach(div => div.classList.add("hidden"));
+      document.getElementById("screen-" + screen).classList.remove("hidden");
+    }
+
+    async function login() {
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value.trim();
+      const loginResponse = document.getElementById("login-response");
+
+      if (!username || !password) {
+        loginResponse.textContent = "กรุณากรอก username และ password";
+        return;
+      }
+
+      if (!PARTNER_CREDENTIALS[username]) {
+        loginResponse.textContent = "❌ Partner ไม่ถูกต้อง";
+        return;
+      }
+
+      if (password !== "password123") {
+        loginResponse.textContent = "❌ รหัสผ่านไม่ถูกต้อง";
+        return;
+      }
+
+      loginResponse.textContent = "";
+      showSpinner(true);
+
+      try {
+        const creds = PARTNER_CREDENTIALS[username];
+
+        const res = await fetch(`${API_BASE}/auth`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            partnerCode: creds.partnerCode,
+            clientId: creds.clientId,
+            clientSecret: creds.clientSecret
+          })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          loginResponse.textContent = "❌ Auth failed: " + (data.message || "Unknown error");
+          showSpinner(false);
+          return;
+        }
+
+        AUTH_TOKEN = "Bearer " + data.data.authToken;
+        TOKEN_TIMESTAMP = Date.now();
+        currentPartner = username;
+
+        sessionStorage.setItem("authToken", AUTH_TOKEN);
+        sessionStorage.setItem("tokenTimestamp", TOKEN_TIMESTAMP.toString());
+        sessionStorage.setItem("currentPartner", currentPartner);
+
+        goToScreen("check");
+      } catch (err) {
+        loginResponse.textContent = "❌ Error: " + err.message;
+      } finally {
+        showSpinner(false);
+      }
+    }
+
+    function isTokenExpired() {
+      const ONE_DAY = 24 * 60 * 60 * 1000;
+      return !AUTH_TOKEN || (Date.now() - TOKEN_TIMESTAMP > ONE_DAY);
+    }
+
+    async function refreshTokenIfNeeded() {
+      if (isTokenExpired() && currentPartner && PARTNER_CREDENTIALS[currentPartner]) {
+        showSpinner(true);
+        try {
+          const creds = PARTNER_CREDENTIALS[currentPartner];
+          const res = await fetch(`${API_BASE}/auth`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              partnerCode: creds.partnerCode,
+              clientId: creds.clientId,
+              clientSecret: creds.clientSecret
+            })
+          });
+          const data = await res.json();
+          if (res.ok) {
+            AUTH_TOKEN = "Bearer " + data.data.authToken;
+            TOKEN_TIMESTAMP = Date.now();
+            sessionStorage.setItem("authToken", AUTH_TOKEN);
+            sessionStorage.setItem("tokenTimestamp", TOKEN_TIMESTAMP.toString());
+          } else {
+            throw new Error(data.message || "Refresh token failed");
+          }
+        } catch (e) {
+          console.error("Failed to refresh token:", e);
+          alert("Token หมดอายุ กรุณาเข้าสู่ระบบใหม่");
+          goToScreen("login");
+        } finally {
+          showSpinner(false);
+        }
+      }
+    }
+
+    async function checkMember() {
+      await refreshTokenIfNeeded();
+
+      const phone = document.getElementById("phone").value.trim();
+      const checkResponse = document.getElementById("check-response");
+      checkResponse.textContent = "";
+
+      if (!phone) {
+        alert("กรุณากรอกเบอร์โทรศัพท์");
+        return;
+      }
+
+      showSpinner(true);
+
+      try {
+        const res = await fetch(`${API_BASE}/member?identity=${encodeURIComponent(phone)}`, {
+          headers: {
+            Authorization: AUTH_TOKEN,
+            "x-partner-code": PARTNER_CREDENTIALS[currentPartner].partnerCode
+          }
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          checkResponse.textContent = "❌ " + (data.message || "ไม่พบข้อมูลสมาชิก");
+          return;
+        }
+
+        customerData = data.data || data;
+
+        if (customerData.accountNumber) {
+          customerData.memberCode = customerData.accountNumber;
+        }
+
+        let memberTier = customerData.tier?.name || "";
+
+        document.getElementById("customer-info").innerHTML = `
+          <strong>ชื่อ:</strong> ${customerData.firstName || ""} ${customerData.lastName || ""}<br>
+          <strong>เบอร์:</strong> ${customerData.telephone || phone}<br>
+          <strong>Member Tier:</strong> ${memberTier}
+        `;
+
+        goToScreen("transaction");
+      } catch (err) {
+        checkResponse.textContent = "❌ Error: " + err.message;
+      } finally {
+        showSpinner(false);
+      }
+    }
+
+    function generateRequestNumber() {
+      const prefix = "JP";
+      const timestamp = Date.now().toString();
+      const randomNum = Math.floor(Math.random() * 10000).toString();
+      let reqNum = prefix + timestamp + randomNum;
+      if (reqNum.length > 25) reqNum = reqNum.slice(0, 25);
+      return reqNum;
+    }
+
+    function getToday() {
+      const d = new Date();
+      return d.toISOString().slice(0, 10);
+    }
+
+    function getCurrentDateTimeISO() {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      const hh = String(d.getHours()).padStart(2, "0");
+      const min = String(d.getMinutes()).padStart(2, "0");
+      const ss = String(d.getSeconds()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+    }
+
+    async function previewPoints() {
+      await refreshTokenIfNeeded();
+
+      const amountStr = document.getElementById("amountPaid").value.trim();
+      const bill = document.getElementById("billNo").value.trim();
+
+      if (!amountStr || !bill) {
+        alert("กรุณากรอกข้อมูลให้ครบ");
+        return;
+      }
+
+      const amount = parseFloat(amountStr);
+      if (isNaN(amount) || amount <= 0) {
+        alert("กรุณากรอกยอดชำระที่ถูกต้อง");
+        return;
+      }
+
+      showSpinner(true);
+
+      try {
+        const payload = {
+          channel: "Store",
+          branchID: "001",
+          brandName: "WELLOGY CLINIC",
+          memberCode: customerData.memberCode,
+          orderNumber: bill,
+          requestType: "Precal",
+          businessDate: getToday(),
+          totalAmountAfterDiscount: amount,
+          totalAmountBeforeDiscount: amount,
+          requestNumber: generateRequestNumber(),
+          purchaseDate: getCurrentDateTimeISO(),
+          promotions: [{ promotionCode: "BASICPOINT" }]
+        };
+
+        const res = await fetch(`${API_BASE}/promotions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: AUTH_TOKEN,
+            "x-partner-code": PARTNER_CREDENTIALS[currentPartner].partnerCode
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          alert("API Error: " + (data.message || "Unknown error"));
+          return;
+        }
+
+        // ดึงคะแนนจาก data.card.credits
+        let points = 0;
+        if (data.data && data.data.card && Array.isArray(data.data.card.credits)) {
+          const pointCredit = data.data.card.credits.find(c => c.creditCode === "POINT");
+          if (pointCredit && typeof pointCredit.creditNew === "number") {
+            points = pointCredit.creditNew;
+          }
+        }
+
+        pendingPoints = points;
+        transactionInfo = {
+          amount: amount,
+          billNo: bill,
+          earnPoints: pendingPoints
+        };
+
+        document.getElementById("confirm-message").innerHTML = `
+          ยอดชำระ: ${amount} บาท<br>
+          คะแนนที่จะได้รับ: <strong>${pendingPoints}</strong> คะแนน<br><br>
+          ยืนยันการทำรายการ?
+        `;
+        showPopup();
+      } catch (err) {
+        alert("Error: " + err.message);
+      } finally {
+        showSpinner(false);
+      }
+    }
+
+    function showPopup() {
+      document.getElementById("confirm-popup").style.display = "flex";
+    }
+
+    function closePopup() {
+      document.getElementById("confirm-popup").style.display = "none";
+    }
+
+    async function confirmSubmit() {
+      await refreshTokenIfNeeded();
+      closePopup();
+      showSpinner(true);
+
+      try {
+        const payload = {
+          channel: "Store",
+          branchID: "001",
+          brandName: "WELLOGY CLINIC",
+          memberCode: customerData.memberCode,
+          orderNumber: transactionInfo.billNo,
+          requestType: "Submit",
+          businessDate: getToday(),
+          totalAmountAfterDiscount: transactionInfo.amount,
+          totalAmountBeforeDiscount: transactionInfo.amount,
+          requestNumber: generateRequestNumber(),
+          purchaseDate: getCurrentDateTimeISO(),
+          promotions: [{ promotionCode: "BASICPOINT" }]
+        };
+
+        const res = await fetch(`${API_BASE}/promotions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: AUTH_TOKEN,
+            "x-partner-code": PARTNER_CREDENTIALS[currentPartner].partnerCode
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          alert("API Error: " + (data.message || "Unknown error"));
+          return;
+        }
+
+        // ดึงคะแนนจาก data.card.credits
+        let points = 0;
+        if (data.data && data.data.card && Array.isArray(data.data.card.credits)) {
+          const pointCredit = data.data.card.credits.find(c => c.creditCode === "POINT");
+          if (pointCredit && typeof pointCredit.creditNew === "number") {
+            points = pointCredit.creditNew;
+          }
+        }
+
+        pendingPoints = points;
+
+        document.getElementById("points-earned").textContent = `+${pendingPoints} คะแนน`;
+        document.getElementById("success-info").innerHTML = `
+          <strong>ยอดชำระ:</strong> ${transactionInfo.amount} บาท<br>
+          <strong>เลขที่บิล:</strong> ${transactionInfo.billNo}<br>
+          <strong>วันที่:</strong> ${new Date().toLocaleString()}
+        `;
+
+        goToScreen("success");
+      } catch (err) {
+        alert("Error: " + err.message);
+      } finally {
+        showSpinner(false);
+      }
+    }
+
+    function showSpinner(show = true) {
+      document.getElementById("spinner").style.display = show ? "flex" : "none";
+    }
+
+    // เริ่มต้นที่หน้า login
+    goToScreen("login");
+  </script>
+</body>
+</html>
