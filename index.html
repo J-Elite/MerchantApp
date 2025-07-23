@@ -210,13 +210,15 @@
   </div>
 
   <script>
-    const API_BASE = "https://sit-api.jpointcrm.com/api/v1/partner";
+    // เปลี่ยนเป็น Production Endpoint
+    const API_BASE = "https://api.jpointcrm.com/api/v1/partner";
 
+    // ใช้ Partner Key สำหรับ Production
     const PARTNER_CREDENTIALS = {
-      "partner1": {
-        partnerCode: "JP_DEV",
-        clientId: "JP_DEV",
-        clientSecret: "423e410c51e0a02c84d1c6046f97c9df1debde99a1aa1c216a39aa3e3756bd02a00401d99eaa264db266fad39f84680f1389af8f2803569ef788a031a2d82f05"
+      "J_ELITE": {
+        partnerCode: "J_ELITE",
+        clientId: "J_ELITE",
+        clientSecret: "" // ใส่เองภายหลัง
       }
     };
 
@@ -376,7 +378,6 @@
       return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
     }
 
-    // แก้จาก Precal → แค่เก็บข้อมูล + แสดง popup
     function previewPoints() {
       const amountStr = document.getElementById("amountPaid").value.trim();
       const bill = document.getElementById("billNo").value.trim();
