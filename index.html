@@ -55,6 +55,21 @@
       font-size: 16px;
       box-sizing: border-box;
     }
+    .password-wrapper {
+      position: relative;
+    }
+    .toggle-password {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      color: #0a2f7d;
+      font-weight: bold;
+    }
     button {
       width: 100%;
       padding: 12px;
@@ -116,6 +131,11 @@
     .success-message h2 {
       color: green;
     }
+    .points-earned {
+      font-size: 24px;
+      color: #0a2f7d;
+      margin: 20px 0;
+    }
     .spinner-overlay {
       display: none;
       position: fixed;
@@ -155,7 +175,10 @@
         <label>Username</label>
         <input type="text" id="username" placeholder="กรอก Username" />
         <label>Password</label>
-        <input type="password" id="password" placeholder="กรอก Password" />
+        <div class="password-wrapper">
+          <input type="password" id="password" placeholder="กรอก Password" />
+          <button class="toggle-password" type="button" onclick="togglePassword()">👁</button>
+        </div>
         <button onclick="login()">เข้าสู่ระบบ</button>
         <pre id="login-response" style="font-size:12px;color:#888;"></pre>
       </div>
@@ -183,7 +206,8 @@
       <!-- Step 3: Success -->
       <div id="screen-success" class="hidden">
         <div class="success-message">
-          <h2>ทำรายการสำเร็จ</h2>
+          <h2>ให้คะแนนสำเร็จ</h2>
+          <div class="points-earned" id="points-earned">+0 คะแนน</div>
           <div id="success-info"></div>
           <button onclick="goToScreen('check')">เสร็จสิ้น</button>
         </div>
@@ -210,15 +234,13 @@
   </div>
 
   <script>
-    // เปลี่ยนเป็น Production Endpoint
     const API_BASE = "https://api.jpointcrm.com/api/v1/partner";
 
-    // ใช้ Partner Key สำหรับ Production
     const PARTNER_CREDENTIALS = {
       "J_ELITE": {
         partnerCode: "J_ELITE",
         clientId: "J_ELITE",
-        clientSecret: "0daff9d663ea4bce816579663be0b302076dd21f274b95f26586bd496afcb123a7faeca076862671c26250d903ed3c8096e84bb171c203d305f0b024bb075959" // ใส่เองภายหลัง
+        clientSecret: "" // ใส่ key จริงเอง
       }
     };
 
@@ -227,6 +249,11 @@
     let currentPartner = sessionStorage.getItem("currentPartner") || null;
     let customerData = null;
     let transactionInfo = {};
+
+    function togglePassword() {
+      const pwdInput = document.getElementById("password");
+      pwdInput.type = pwdInput.type === "password" ? "text" : "password";
+    }
 
     function goToScreen(screen) {
       document.querySelectorAll(".app-content > div").forEach(div => div.classList.add("hidden"));
@@ -258,7 +285,6 @@
 
       try {
         const creds = PARTNER_CREDENTIALS[username];
-
         const res = await fetch(`${API_BASE}/auth`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -270,7 +296,6 @@
         });
 
         const data = await res.json();
-
         if (!res.ok) {
           loginResponse.textContent = "❌ Auth failed: " + (data.message || "Unknown error");
           showSpinner(false);
@@ -294,17 +319,40 @@
     }
 
     async function refreshTokenIfNeeded() {
-      if (!AUTH_TOKEN) return;
       const ONE_DAY = 24 * 60 * 60 * 1000;
-      if (Date.now() - TOKEN_TIMESTAMP > ONE_DAY) {
-        alert("Token หมดอายุ กรุณาเข้าสู่ระบบใหม่");
-        goToScreen("login");
+      if (!AUTH_TOKEN || (Date.now() - TOKEN_TIMESTAMP > ONE_DAY)) {
+        if (currentPartner && PARTNER_CREDENTIALS[currentPartner]) {
+          showSpinner(true);
+          try {
+            const creds = PARTNER_CREDENTIALS[currentPartner];
+            const res = await fetch(`${API_BASE}/auth`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                partnerCode: creds.partnerCode,
+                clientId: creds.clientId,
+                clientSecret: creds.clientSecret
+              })
+            });
+            const data = await res.json();
+            if (res.ok) {
+              AUTH_TOKEN = "Bearer " + data.data.authToken;
+              TOKEN_TIMESTAMP = Date.now();
+              sessionStorage.setItem("authToken", AUTH_TOKEN);
+              sessionStorage.setItem("tokenTimestamp", TOKEN_TIMESTAMP.toString());
+            } else throw new Error(data.message || "Refresh token failed");
+          } catch (e) {
+            alert("Token หมดอายุ กรุณาเข้าสู่ระบบใหม่");
+            goToScreen("login");
+          } finally {
+            showSpinner(false);
+          }
+        }
       }
     }
 
     async function checkMember() {
       await refreshTokenIfNeeded();
-
       const phone = document.getElementById("phone").value.trim();
       const checkResponse = document.getElementById("check-response");
       checkResponse.textContent = "";
@@ -315,7 +363,6 @@
       }
 
       showSpinner(true);
-
       try {
         const res = await fetch(`${API_BASE}/member?identity=${encodeURIComponent(phone)}`, {
           headers: {
@@ -325,26 +372,22 @@
         });
 
         const data = await res.json();
-
         if (!res.ok) {
           checkResponse.textContent = "❌ " + (data.message || "ไม่พบข้อมูลสมาชิก");
           return;
         }
 
         customerData = data.data || data;
-
         if (customerData.accountNumber) {
           customerData.memberCode = customerData.accountNumber;
         }
 
         let memberTier = customerData.tier?.name || "";
-
         document.getElementById("customer-info").innerHTML = `
           <strong>ชื่อ:</strong> ${customerData.firstName || ""} ${customerData.lastName || ""}<br>
           <strong>เบอร์:</strong> ${customerData.telephone || phone}<br>
           <strong>Member Tier:</strong> ${memberTier}
         `;
-
         goToScreen("transaction");
       } catch (err) {
         checkResponse.textContent = "❌ Error: " + err.message;
@@ -363,25 +406,17 @@
     }
 
     function getToday() {
-      const d = new Date();
-      return d.toISOString().slice(0, 10);
+      return new Date().toISOString().slice(0, 10);
     }
 
     function getCurrentDateTimeISO() {
       const d = new Date();
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, "0");
-      const dd = String(d.getDate()).padStart(2, "0");
-      const hh = String(d.getHours()).padStart(2, "0");
-      const min = String(d.getMinutes()).padStart(2, "0");
-      const ss = String(d.getSeconds()).padStart(2, "0");
-      return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`;
     }
 
     function previewPoints() {
       const amountStr = document.getElementById("amountPaid").value.trim();
       const bill = document.getElementById("billNo").value.trim();
-
       if (!amountStr || !bill) {
         alert("กรุณากรอกข้อมูลให้ครบ");
         return;
@@ -396,7 +431,6 @@
       transactionInfo = { amount, billNo: bill };
       document.getElementById("confirm-message").innerHTML = `
         ยอดชำระ: ${amount} บาท<br>
-        เลขที่บิล: ${bill}<br><br>
         ยืนยันการทำรายการ?
       `;
       showPopup();
@@ -428,7 +462,7 @@
           totalAmountBeforeDiscount: transactionInfo.amount,
           requestNumber: generateRequestNumber(),
           purchaseDate: getCurrentDateTimeISO(),
-          promotions: []
+          promotions: [{ promotionCode: "BASICPOINT" }]
         };
 
         const res = await fetch(`${API_BASE}/promotions`, {
@@ -442,18 +476,17 @@
         });
 
         const data = await res.json();
-
         if (!res.ok) {
           alert("API Error: " + (data.message || "Unknown error"));
           return;
         }
 
+        document.getElementById("points-earned").textContent = `+0 คะแนน`;
         document.getElementById("success-info").innerHTML = `
           <strong>ยอดชำระ:</strong> ${transactionInfo.amount} บาท<br>
           <strong>เลขที่บิล:</strong> ${transactionInfo.billNo}<br>
           <strong>วันที่:</strong> ${new Date().toLocaleString()}
         `;
-
         goToScreen("success");
       } catch (err) {
         alert("Error: " + err.message);
