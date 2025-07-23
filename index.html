@@ -160,7 +160,7 @@
         <pre id="login-response" style="font-size:12px;color:#888;"></pre>
       </div>
 
-      <!-- Check Member -->
+      <!-- Step 1: Check Member -->
       <div id="screen-check" class="hidden">
         <h2>เบอร์โทรศัพท์ลูกค้า</h2>
         <input type="text" id="phone" placeholder="กรอกเบอร์โทรศัพท์" />
@@ -168,7 +168,7 @@
         <pre id="check-response" style="font-size:12px;color:#888;"></pre>
       </div>
 
-      <!-- Transaction -->
+      <!-- Step 2: Transaction -->
       <div id="screen-transaction" class="hidden">
         <h2>ข้อมูลลูกค้า</h2>
         <div class="customer-info" id="customer-info"></div>
@@ -180,10 +180,10 @@
         <button onclick="showConfirmPopup()">ส่งข้อมูล</button>
       </div>
 
-      <!-- Success -->
+      <!-- Step 3: Success -->
       <div id="screen-success" class="hidden">
         <div class="success-message">
-          <h2>ให้คะแนนสำเร็จ</h2>
+          <h2>ทำรายการสำเร็จ</h2>
           <div id="success-info"></div>
           <button onclick="goToScreen('check')">เสร็จสิ้น</button>
         </div>
@@ -194,7 +194,7 @@
   <!-- Popup Confirm -->
   <div class="popup-overlay" id="confirm-popup">
     <div class="popup">
-      <h3>ยืนยันการให้คะแนน</h3>
+      <h3>ยืนยันการทำรายการ</h3>
       <p id="confirm-message">กรุณายืนยันการทำรายการ</p>
       <div class="popup-buttons">
         <button onclick="closePopup()">ยกเลิก</button>
@@ -211,7 +211,6 @@
 
   <script>
     const API_BASE = "https://sit-api.jpointcrm.com/api/v1/partner";
-
     const PARTNER_CREDENTIALS = {
       "partner1": {
         partnerCode: "JP_DEV",
@@ -256,36 +255,22 @@
 
       try {
         const creds = PARTNER_CREDENTIALS[username];
-
         const res = await fetch(`${API_BASE}/auth`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            partnerCode: creds.partnerCode,
-            clientId: creds.clientId,
-            clientSecret: creds.clientSecret
-          })
+          body: JSON.stringify(creds)
         });
-
         const data = await res.json();
-
-        if (!res.ok) {
-          loginResponse.textContent = "❌ Auth failed: " + (data.message || "Unknown error");
-          showSpinner(false);
-          return;
-        }
-
+        if (!res.ok) throw new Error(data.message || "Auth failed");
         AUTH_TOKEN = "Bearer " + data.data.authToken;
         TOKEN_TIMESTAMP = Date.now();
         currentPartner = username;
-
         sessionStorage.setItem("authToken", AUTH_TOKEN);
         sessionStorage.setItem("tokenTimestamp", TOKEN_TIMESTAMP.toString());
         sessionStorage.setItem("currentPartner", currentPartner);
-
         goToScreen("check");
       } catch (err) {
-        loginResponse.textContent = "❌ Error: " + err.message;
+        loginResponse.textContent = "❌ " + err.message;
       } finally {
         showSpinner(false);
       }
@@ -304,23 +289,15 @@
           const res = await fetch(`${API_BASE}/auth`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              partnerCode: creds.partnerCode,
-              clientId: creds.clientId,
-              clientSecret: creds.clientSecret
-            })
+            body: JSON.stringify(creds)
           });
           const data = await res.json();
-          if (res.ok) {
-            AUTH_TOKEN = "Bearer " + data.data.authToken;
-            TOKEN_TIMESTAMP = Date.now();
-            sessionStorage.setItem("authToken", AUTH_TOKEN);
-            sessionStorage.setItem("tokenTimestamp", TOKEN_TIMESTAMP.toString());
-          } else {
-            throw new Error(data.message || "Refresh token failed");
-          }
+          if (!res.ok) throw new Error(data.message || "Refresh token failed");
+          AUTH_TOKEN = "Bearer " + data.data.authToken;
+          TOKEN_TIMESTAMP = Date.now();
+          sessionStorage.setItem("authToken", AUTH_TOKEN);
+          sessionStorage.setItem("tokenTimestamp", TOKEN_TIMESTAMP.toString());
         } catch (e) {
-          console.error("Failed to refresh token:", e);
           alert("Token หมดอายุ กรุณาเข้าสู่ระบบใหม่");
           goToScreen("login");
         } finally {
@@ -330,62 +307,46 @@
     }
 
     async function checkMember() {
+      await refreshTokenIfNeeded();
       const phone = document.getElementById("phone").value.trim();
       const checkResponse = document.getElementById("check-response");
       checkResponse.textContent = "";
-
       if (!phone) {
-        checkResponse.textContent = "กรุณากรอกเบอร์โทรศัพท์";
+        alert("กรุณากรอกเบอร์โทรศัพท์");
         return;
       }
-
-      await refreshTokenIfNeeded();
-
       showSpinner(true);
       try {
-        const res = await fetch(`${API_BASE}/member/check?phoneNumber=${encodeURIComponent(phone)}`, {
-          method: "GET",
-          headers: {
-            Authorization: AUTH_TOKEN
-          }
+        const res = await fetch(`${API_BASE}/member?identity=${encodeURIComponent(phone)}`, {
+          headers: { Authorization: AUTH_TOKEN, "x-partner-code": PARTNER_CREDENTIALS[currentPartner].partnerCode }
         });
         const data = await res.json();
-
-        if (!res.ok) {
-          checkResponse.textContent = "❌ " + (data.message || "ไม่พบข้อมูลสมาชิก");
-          return;
-        }
-
-        customerData = data.data;
-        document.getElementById("customer-info").textContent = `ชื่อ: ${customerData.firstName || "-"} ${customerData.lastName || "-"}\nเบอร์: ${customerData.phoneNumber}\nสมาชิก: ${customerData.memberCode || "-"}`;
+        if (!res.ok) throw new Error(data.message || "ไม่พบข้อมูลสมาชิก");
+        customerData = data.data || data;
+        if (customerData.accountNumber) customerData.memberCode = customerData.accountNumber;
+        document.getElementById("customer-info").innerHTML =
+          `<strong>ชื่อ:</strong> ${customerData.firstName || ""} ${customerData.lastName || ""}<br>
+           <strong>เบอร์:</strong> ${customerData.telephone || phone}`;
         goToScreen("transaction");
       } catch (err) {
-        checkResponse.textContent = "❌ Error: " + err.message;
+        checkResponse.textContent = "❌ " + err.message;
       } finally {
         showSpinner(false);
       }
     }
 
     function showConfirmPopup() {
-      const amountPaid = document.getElementById("amountPaid").value.trim();
+      const amount = document.getElementById("amountPaid").value.trim();
       const billNo = document.getElementById("billNo").value.trim();
-
-      if (!amountPaid || isNaN(amountPaid) || Number(amountPaid) <= 0) {
+      if (!amount || isNaN(amount) || Number(amount) <= 0) {
         alert("กรุณากรอกยอดชำระที่ถูกต้อง");
         return;
       }
-
       if (!billNo) {
-        alert("กรุณากรอกเลขที่บิล / ใบเสร็จ");
+        alert("กรุณากรอกเลขที่บิล");
         return;
       }
-
-      transactionInfo = {
-        amountPaid: amountPaid,
-        billNo: billNo
-      };
-
-      // แสดง popup ยืนยัน
+      transactionInfo = { amount: Number(amount), billNo };
       document.getElementById("confirm-popup").style.display = "flex";
     }
 
@@ -395,62 +356,51 @@
 
     async function confirmSubmit() {
       closePopup();
-      await submitTransaction();
-    }
-
-    async function submitTransaction() {
       await refreshTokenIfNeeded();
-
       showSpinner(true);
-
       try {
         const payload = {
-          amount: Number(transactionInfo.amountPaid),
-          billNo: transactionInfo.billNo,
+          channel: "Store",
+          branchID: "001",
+          brandName: "WELLOGY CLINIC",
           memberCode: customerData.memberCode,
-          phoneNumber: customerData.phoneNumber
+          orderNumber: transactionInfo.billNo,
+          requestType: "Submit",
+          businessDate: new Date().toISOString().split("T")[0],
+          totalAmountAfterDiscount: transactionInfo.amount,
+          totalAmountBeforeDiscount: transactionInfo.amount,
+          requestNumber: "JP" + Date.now(),
+          purchaseDate: new Date().toISOString(),
+          promotions: []
         };
-
-        const res = await fetch(`${API_BASE}/transaction/submit`, {
+        const res = await fetch(`${API_BASE}/promotions`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: AUTH_TOKEN
+            Authorization: AUTH_TOKEN,
+            "x-partner-code": PARTNER_CREDENTIALS[currentPartner].partnerCode
           },
           body: JSON.stringify(payload)
         });
-
         const data = await res.json();
-
-        if (!res.ok) {
-          alert("❌ ส่งข้อมูลไม่สำเร็จ: " + (data.message || "Unknown error"));
-          showSpinner(false);
-          return;
-        }
-
-        // แสดงหน้าสำเร็จ
-        document.getElementById("success-info").textContent = `บิล: ${transactionInfo.billNo}\nยอดชำระ: ${transactionInfo.amountPaid} บาท`;
+        if (!res.ok) throw new Error(data.message || "API Error");
+        document.getElementById("success-info").innerHTML =
+          `<strong>ยอดชำระ:</strong> ${transactionInfo.amount} บาท<br>
+           <strong>เลขที่บิล:</strong> ${transactionInfo.billNo}<br>
+           <strong>วันที่:</strong> ${new Date().toLocaleString()}`;
         goToScreen("success");
       } catch (err) {
-        alert("❌ Error: " + err.message);
+        alert("❌ " + err.message);
       } finally {
         showSpinner(false);
       }
     }
 
-    function showSpinner(show = true) {
-      const spinner = document.getElementById("spinner");
-      spinner.style.display = show ? "flex" : "none";
+    function showSpinner(show=true) {
+      document.getElementById("spinner").style.display = show ? "flex" : "none";
     }
 
-    // ถ้า token หมดอายุให้ลบและกลับไป login ใหม่
-    window.onload = () => {
-      if (!AUTH_TOKEN) {
-        goToScreen("login");
-      } else {
-        goToScreen("check");
-      }
-    };
+    goToScreen("login");
   </script>
 </body>
 </html>
