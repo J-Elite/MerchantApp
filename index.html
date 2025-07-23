@@ -437,7 +437,7 @@
           branchID: "001",
           brandName: "WELLOGY CLINIC",
           memberCode: customerData.memberCode,
-          orderNumber: bill,
+          orderNumber: generateRequestNumber(), // mock order number for Precal
           requestType: "Precal",
           businessDate: getToday(),
           totalAmountAfterDiscount: amount,
@@ -512,7 +512,7 @@
           branchID: "001",
           brandName: "WELLOGY CLINIC",
           memberCode: customerData.memberCode,
-          orderNumber: transactionInfo.billNo,
+          orderNumber: transactionInfo.billNo, // ใช้เลขที่บิลที่ user กรอกจริงตอน submit
           requestType: "Submit",
           businessDate: getToday(),
           totalAmountAfterDiscount: transactionInfo.amount,
