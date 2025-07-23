@@ -177,7 +177,7 @@
         <input type="text" id="amountPaid" placeholder="กรอกยอดชำระ" />
         <label>เลขที่บิล / ใบเสร็จ</label>
         <input type="text" id="billNo" placeholder="เช่น 311299240900152" />
-        <button onclick="showConfirmPopup()">ส่งข้อมูล</button>
+        <button onclick="previewPoints()">ส่งข้อมูล</button>
       </div>
 
       <!-- Step 3: Success -->
@@ -211,6 +211,7 @@
 
   <script>
     const API_BASE = "https://sit-api.jpointcrm.com/api/v1/partner";
+
     const PARTNER_CREDENTIALS = {
       "partner1": {
         partnerCode: "JP_DEV",
@@ -255,98 +256,152 @@
 
       try {
         const creds = PARTNER_CREDENTIALS[username];
+
         const res = await fetch(`${API_BASE}/auth`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(creds)
+          body: JSON.stringify({
+            partnerCode: creds.partnerCode,
+            clientId: creds.clientId,
+            clientSecret: creds.clientSecret
+          })
         });
+
         const data = await res.json();
-        if (!res.ok) throw new Error(data.message || "Auth failed");
+
+        if (!res.ok) {
+          loginResponse.textContent = "❌ Auth failed: " + (data.message || "Unknown error");
+          showSpinner(false);
+          return;
+        }
+
         AUTH_TOKEN = "Bearer " + data.data.authToken;
         TOKEN_TIMESTAMP = Date.now();
         currentPartner = username;
+
         sessionStorage.setItem("authToken", AUTH_TOKEN);
         sessionStorage.setItem("tokenTimestamp", TOKEN_TIMESTAMP.toString());
         sessionStorage.setItem("currentPartner", currentPartner);
+
         goToScreen("check");
       } catch (err) {
-        loginResponse.textContent = "❌ " + err.message;
+        loginResponse.textContent = "❌ Error: " + err.message;
       } finally {
         showSpinner(false);
       }
     }
 
-    function isTokenExpired() {
-      const ONE_DAY = 24 * 60 * 60 * 1000;
-      return !AUTH_TOKEN || (Date.now() - TOKEN_TIMESTAMP > ONE_DAY);
-    }
-
     async function refreshTokenIfNeeded() {
-      if (isTokenExpired() && currentPartner && PARTNER_CREDENTIALS[currentPartner]) {
-        showSpinner(true);
-        try {
-          const creds = PARTNER_CREDENTIALS[currentPartner];
-          const res = await fetch(`${API_BASE}/auth`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(creds)
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.message || "Refresh token failed");
-          AUTH_TOKEN = "Bearer " + data.data.authToken;
-          TOKEN_TIMESTAMP = Date.now();
-          sessionStorage.setItem("authToken", AUTH_TOKEN);
-          sessionStorage.setItem("tokenTimestamp", TOKEN_TIMESTAMP.toString());
-        } catch (e) {
-          alert("Token หมดอายุ กรุณาเข้าสู่ระบบใหม่");
-          goToScreen("login");
-        } finally {
-          showSpinner(false);
-        }
+      if (!AUTH_TOKEN) return;
+      const ONE_DAY = 24 * 60 * 60 * 1000;
+      if (Date.now() - TOKEN_TIMESTAMP > ONE_DAY) {
+        alert("Token หมดอายุ กรุณาเข้าสู่ระบบใหม่");
+        goToScreen("login");
       }
     }
 
     async function checkMember() {
       await refreshTokenIfNeeded();
+
       const phone = document.getElementById("phone").value.trim();
       const checkResponse = document.getElementById("check-response");
       checkResponse.textContent = "";
+
       if (!phone) {
         alert("กรุณากรอกเบอร์โทรศัพท์");
         return;
       }
+
       showSpinner(true);
+
       try {
         const res = await fetch(`${API_BASE}/member?identity=${encodeURIComponent(phone)}`, {
-          headers: { Authorization: AUTH_TOKEN, "x-partner-code": PARTNER_CREDENTIALS[currentPartner].partnerCode }
+          headers: {
+            Authorization: AUTH_TOKEN,
+            "x-partner-code": PARTNER_CREDENTIALS[currentPartner].partnerCode
+          }
         });
+
         const data = await res.json();
-        if (!res.ok) throw new Error(data.message || "ไม่พบข้อมูลสมาชิก");
+
+        if (!res.ok) {
+          checkResponse.textContent = "❌ " + (data.message || "ไม่พบข้อมูลสมาชิก");
+          return;
+        }
+
         customerData = data.data || data;
-        if (customerData.accountNumber) customerData.memberCode = customerData.accountNumber;
-        document.getElementById("customer-info").innerHTML =
-          `<strong>ชื่อ:</strong> ${customerData.firstName || ""} ${customerData.lastName || ""}<br>
-           <strong>เบอร์:</strong> ${customerData.telephone || phone}`;
+
+        if (customerData.accountNumber) {
+          customerData.memberCode = customerData.accountNumber;
+        }
+
+        let memberTier = customerData.tier?.name || "";
+
+        document.getElementById("customer-info").innerHTML = `
+          <strong>ชื่อ:</strong> ${customerData.firstName || ""} ${customerData.lastName || ""}<br>
+          <strong>เบอร์:</strong> ${customerData.telephone || phone}<br>
+          <strong>Member Tier:</strong> ${memberTier}
+        `;
+
         goToScreen("transaction");
       } catch (err) {
-        checkResponse.textContent = "❌ " + err.message;
+        checkResponse.textContent = "❌ Error: " + err.message;
       } finally {
         showSpinner(false);
       }
     }
 
-    function showConfirmPopup() {
-      const amount = document.getElementById("amountPaid").value.trim();
-      const billNo = document.getElementById("billNo").value.trim();
-      if (!amount || isNaN(amount) || Number(amount) <= 0) {
+    function generateRequestNumber() {
+      const prefix = "JP";
+      const timestamp = Date.now().toString();
+      const randomNum = Math.floor(Math.random() * 10000).toString();
+      let reqNum = prefix + timestamp + randomNum;
+      if (reqNum.length > 25) reqNum = reqNum.slice(0, 25);
+      return reqNum;
+    }
+
+    function getToday() {
+      const d = new Date();
+      return d.toISOString().slice(0, 10);
+    }
+
+    function getCurrentDateTimeISO() {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      const hh = String(d.getHours()).padStart(2, "0");
+      const min = String(d.getMinutes()).padStart(2, "0");
+      const ss = String(d.getSeconds()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+    }
+
+    // แก้จาก Precal → แค่เก็บข้อมูล + แสดง popup
+    function previewPoints() {
+      const amountStr = document.getElementById("amountPaid").value.trim();
+      const bill = document.getElementById("billNo").value.trim();
+
+      if (!amountStr || !bill) {
+        alert("กรุณากรอกข้อมูลให้ครบ");
+        return;
+      }
+
+      const amount = parseFloat(amountStr);
+      if (isNaN(amount) || amount <= 0) {
         alert("กรุณากรอกยอดชำระที่ถูกต้อง");
         return;
       }
-      if (!billNo) {
-        alert("กรุณากรอกเลขที่บิล");
-        return;
-      }
-      transactionInfo = { amount: Number(amount), billNo };
+
+      transactionInfo = { amount, billNo: bill };
+      document.getElementById("confirm-message").innerHTML = `
+        ยอดชำระ: ${amount} บาท<br>
+        เลขที่บิล: ${bill}<br><br>
+        ยืนยันการทำรายการ?
+      `;
+      showPopup();
+    }
+
+    function showPopup() {
       document.getElementById("confirm-popup").style.display = "flex";
     }
 
@@ -355,9 +410,10 @@
     }
 
     async function confirmSubmit() {
-      closePopup();
       await refreshTokenIfNeeded();
+      closePopup();
       showSpinner(true);
+
       try {
         const payload = {
           channel: "Store",
@@ -366,13 +422,14 @@
           memberCode: customerData.memberCode,
           orderNumber: transactionInfo.billNo,
           requestType: "Submit",
-          businessDate: new Date().toISOString().split("T")[0],
+          businessDate: getToday(),
           totalAmountAfterDiscount: transactionInfo.amount,
           totalAmountBeforeDiscount: transactionInfo.amount,
-          requestNumber: "JP" + Date.now(),
-          purchaseDate: new Date().toISOString(),
+          requestNumber: generateRequestNumber(),
+          purchaseDate: getCurrentDateTimeISO(),
           promotions: []
         };
+
         const res = await fetch(`${API_BASE}/promotions`, {
           method: "POST",
           headers: {
@@ -382,21 +439,29 @@
           },
           body: JSON.stringify(payload)
         });
+
         const data = await res.json();
-        if (!res.ok) throw new Error(data.message || "API Error");
-        document.getElementById("success-info").innerHTML =
-          `<strong>ยอดชำระ:</strong> ${transactionInfo.amount} บาท<br>
-           <strong>เลขที่บิล:</strong> ${transactionInfo.billNo}<br>
-           <strong>วันที่:</strong> ${new Date().toLocaleString()}`;
+
+        if (!res.ok) {
+          alert("API Error: " + (data.message || "Unknown error"));
+          return;
+        }
+
+        document.getElementById("success-info").innerHTML = `
+          <strong>ยอดชำระ:</strong> ${transactionInfo.amount} บาท<br>
+          <strong>เลขที่บิล:</strong> ${transactionInfo.billNo}<br>
+          <strong>วันที่:</strong> ${new Date().toLocaleString()}
+        `;
+
         goToScreen("success");
       } catch (err) {
-        alert("❌ " + err.message);
+        alert("Error: " + err.message);
       } finally {
         showSpinner(false);
       }
     }
 
-    function showSpinner(show=true) {
+    function showSpinner(show = true) {
       document.getElementById("spinner").style.display = show ? "flex" : "none";
     }
 
